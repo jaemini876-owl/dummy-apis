@@ -18,7 +18,8 @@ export const responseSchema = z.object({
   headers: z.record(z.string(), z.string()).default({}),
   contentType: z.string().min(1).default('application/json'),
   body: z.string().nullable().default(null),
-  bodyBase64: z.string().nullable().default(null),
+  // 바이너리 응답 한도 2MB (base64는 4/3 증가)
+  bodyBase64: z.string().max(Math.ceil((2 * 1024 * 1024 * 4) / 3) + 4, '바이너리 응답은 2MB 이하여야 합니다').nullable().default(null),
   delayMinMs: z.number().int().min(0).max(120000).default(0),
   delayMaxMs: z.number().int().min(0).max(120000).default(0),
   fault: z.enum(['timeout', 'reset', 'truncate', 'invalid_json']).nullable().default(null),

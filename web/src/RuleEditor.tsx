@@ -11,6 +11,17 @@ const textToHeaders = (t: string) =>
     }),
   );
 
+const MAX_BINARY_BYTES = 2 * 1024 * 1024;
+const formatBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`);
+const base64Bytes = (b: string) => Math.floor((b.length * 3) / 4) - (b.endsWith('==') ? 2 : b.endsWith('=') ? 1 : 0);
+const readBase64 = (f: File) =>
+  new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1] ?? '');
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(f);
+  });
+
 function ConditionsEditor({ value, onChange }: { value: Condition[]; onChange: (c: Condition[]) => void }) {
   const set = (i: number, patch: Partial<Condition>) => onChange(value.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   return (
@@ -41,6 +52,7 @@ function ResponseCard({
   r: ResponseDef; index: number; total: number; mode: RuleInput['selectMode'];
   onChange: (r: ResponseDef) => void; onMove: (d: -1 | 1) => void; onRemove: () => void;
 }) {
+  const toast = useToast();
   const [headersText, setHeadersText] = useState(headersToText(r.headers));
   const set = (patch: Partial<ResponseDef>) => onChange({ ...r, ...patch });
   const preset = STATUS_PRESETS.find((p) => p[0] === r.status);
@@ -88,9 +100,40 @@ function ResponseCard({
       <label>Headers <span className="muted">(줄마다 <code>Key: Value</code>, {'{{ }}'} 사용 가능)</span>
         <textarea rows={2} value={headersText} onChange={(e) => (setHeadersText(e.target.value), set({ headers: textToHeaders(e.target.value) }))} />
       </label>
-      <label>Body <span className="muted">(<code>{'{{params.id}} {{query.x}} {{body.a.b}} {{uuid}} {{now}} {{random.int(1,9)}} {{faker.name}}'}</code>)</span>
-        <textarea className="mono" rows={7} spellCheck={false} value={r.body ?? ''} onChange={(e) => set({ body: e.target.value })} />
-      </label>
+      {r.bodyBase64 ? (
+        <div className="binary">
+          <strong>바이너리 응답</strong> <span className="muted">{r.contentType} · {formatBytes(base64Bytes(r.bodyBase64))}</span>
+          {r.contentType.startsWith('image/') && (
+            <div><img src={`data:${r.contentType};base64,${r.bodyBase64}`} alt="미리보기" style={{ maxWidth: 240, maxHeight: 160, marginTop: 8 }} /></div>
+          )}
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="ghost small" onClick={() => set({ bodyBase64: null, body: '' })}>제거 (텍스트 바디로 전환)</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <label>Body <span className="muted">(<code>{'{{params.id}} {{query.x}} {{body.a.b}} {{uuid}} {{now}} {{random.int(1,9)}} {{faker.name}}'}</code>)</span>
+            <textarea className="mono" rows={7} spellCheck={false} value={r.body ?? ''} onChange={(e) => set({ body: e.target.value })} />
+          </label>
+          <label>또는 파일 업로드 <span className="muted">(이미지·PDF 등 바이너리, 최대 {formatBytes(MAX_BINARY_BYTES)} — 업로드하면 텍스트 바디·템플릿은 사용되지 않음)</span>
+            <input
+              type="file"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (!f) return;
+                if (f.size > MAX_BINARY_BYTES) return toast(`파일이 너무 큽니다 (${formatBytes(f.size)} > ${formatBytes(MAX_BINARY_BYTES)})`, true);
+                try {
+                  const b64 = await readBase64(f);
+                  set({ bodyBase64: b64, body: null, contentType: f.type || 'application/octet-stream' });
+                } catch {
+                  toast('파일을 읽지 못했습니다', true);
+                }
+              }}
+            />
+          </label>
+        </>
+      )}
       {mode === 'conditional' && (
         <div>
           <strong>이 응답이 선택되는 조건</strong> <span className="muted">(비우면 기본 응답, 위에서부터 첫 일치)</span>

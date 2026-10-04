@@ -16,6 +16,9 @@ COPY web/package.json web/
 RUN npm ci --omit=dev -w server
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/web/dist web/dist
+# 비root 실행: 파일 저장소 모드(DATA_FILE 기본 data/db.json)용 쓰기 가능 디렉터리만 node 사용자에게 부여
+RUN mkdir -p /app/data && chown node:node /app/data
+USER node
 EXPOSE 3000
 # localhost는 alpine에서 ::1로 해석되어 IPv4(0.0.0.0)에만 열린 서버에 연결 실패하므로 127.0.0.1 사용
 HEALTHCHECK --interval=15s --start-period=5s CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1

@@ -53,7 +53,7 @@
 - **B1 (수정 완료)** `RuleEditor`: 응답 카드를 인덱스 key로 렌더링하여, 응답 ↑/↓ 이동·삭제 시 Headers 입력창의 내부 state가 다른 응답과 섞이고 이후 편집 시 엉뚱한 응답의 헤더를 덮어쓸 수 있었음 → 카드별 안정 key 도입 후 웹 재빌드.
 
 ### 알려진 위험 (미수정, 문서화 필요)
-- **R1** 규칙 수정이 Supabase에서 비원자적 (rule update → responses delete → insert 사이 실패 시 응답이 비는 상태). → **Act 진행 (2026-10-05)**: `supabase/migrations/0002_replace_rule_rpc.sql`의 `replace_rule` RPC + `SupabaseRepo.replaceRule` 연동 완료. 마이그레이션 적용 전에는 경고 로그와 함께 기존 경로로 폴백. **마이그레이션 적용 후 검증 완료 (2026-10-05)**: RPC 성공/미존재(false)/제약 위반 시 전체 롤백(규칙·응답 모두 원복) 확인, 서버 경유 PUT 200·중복 409(기존 응답 유지)·폴백 경고 없음. anon 호출 차단은 `.env`에 anon 키가 없어 미검증. → **R1 해소**.
+- **R1** 규칙 수정이 Supabase에서 비원자적 (rule update → responses delete → insert 사이 실패 시 응답이 비는 상태). → **Act 진행 (2026-10-05)**: `supabase/migrations/0002_replace_rule_rpc.sql`의 `replace_rule` RPC + `SupabaseRepo.replaceRule` 연동 완료. 마이그레이션 적용 전에는 경고 로그와 함께 기존 경로로 폴백. **마이그레이션 적용 후 검증 완료 (2026-10-05)**: RPC 성공/미존재(false)/제약 위반 시 전체 롤백(규칙·응답 모두 원복) 확인, 서버 경유 PUT 200·중복 409(기존 응답 유지)·폴백 경고 없음. anon 호출 차단은 SQL Editor의 `has_function_privilege`로 확인 (anon=false, authenticated=false, service_role=true, 2026-10-05). → **R1 해소**.
 - **R2** 인증이 없어 URL을 아는 누구나 규칙 수정 가능 — 호스트 레벨 접근 제한 필요 (README에 명시).
 - **R3** `timeout` fault는 최대 120초 동안 소켓을 점유 — 악의적 반복 호출 시 자원 소모 (공유 서버에서는 사내망 한정으로 완화).
 - **R4** 로그 요청 바디(64KB)/헤더에 토큰 등 민감값이 그대로 저장됨 — 더미 환경 전용으로 사용하고 실제 자격증명 사용 금지를 안내해야 함.

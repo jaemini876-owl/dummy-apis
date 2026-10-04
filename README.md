@@ -43,7 +43,7 @@ npm start                 # http://localhost:3000/__admin/
 ## Supabase 설정
 
 1. Supabase 프로젝트 생성
-2. SQL Editor에서 `supabase/migrations/0001_init.sql` 실행
+2. SQL Editor에서 `supabase/migrations/0001_init.sql`, 이어서 `0002_replace_rule_rpc.sql` 실행 (0002는 규칙 수정을 원자적으로 처리하는 `replace_rule` 함수. 미적용 시 서버가 경고 로그와 함께 비원자적 경로로 동작)
 3. Project Settings → API 에서 URL과 `service_role` key를 `.env`에 입력
 
 ## 배포 (팀 공유 서버)
@@ -56,6 +56,15 @@ docker run -d -p 3000:3000 --env-file .env dummy-api
 - 상시 구동 호스트 필요 (SSE, 장시간 지연/timeout 시뮬레이션). 리버스 프록시는 SSE 버퍼링 off, 타임아웃 ≥ 130s.
 - **단일 인스턴스 권장**: 순차 응답 카운터와 SSE 구독이 인스턴스 로컬입니다. 규칙은 30초 주기로 DB와 재동기화됩니다.
 - 현재 **로그인이 없습니다.** 사내망/VPN 등 호스트 레벨에서 접근을 제한하세요. 유저 기반 전환 지점은 `server/src/auth/currentUser.ts`.
+
+## 보안 주의사항
+
+이 서버는 **더미/테스트 환경 전용**입니다.
+
+- **인증 없음:** 관리 콘솔과 관리 API(`/__admin`)는 URL을 아는 누구나 규칙을 수정·삭제할 수 있습니다. 사내망/VPN/리버스 프록시 인증 등 호스트 레벨에서 접근을 제한하세요.
+- **요청 로그에 민감값 저장:** 요청 바디(최대 64KB)와 헤더가 그대로 로그(Supabase 포함)에 저장됩니다. **실제 토큰·비밀번호·개인정보를 이 서버로 보내지 마세요.**
+- **timeout 장애 시뮬레이션:** `timeout` 응답은 최대 120초 동안 연결을 점유합니다. 외부에 노출된 서버에서는 반복 호출로 자원이 소모될 수 있으니 사내망에서만 운영하세요.
+- `SUPABASE_SERVICE_ROLE_KEY`는 서버 환경변수로만 두고 저장소에 커밋하지 마세요 (`.env`는 `.gitignore`에 포함).
 
 ## 모바일 연결 팁
 

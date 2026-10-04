@@ -46,6 +46,28 @@ test.describe.serial('관리 콘솔 스모크', () => {
     await expect(page.locator('tbody tr', { hasText: '/v2/orders/1' })).toBeVisible();
   });
 
+  test('G10: 규칙 호출 URL 복사 (목록·편집기)', async ({ page, context, baseURL }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const expected = `${baseURL}/m/${slug}/v2/orders/:id`;
+    const clip = () => page.evaluate(() => navigator.clipboard.readText());
+
+    await page.goto(`/__admin/#/p/${slug}/rules`);
+    const row = page.locator('tbody tr', { hasText: '/v2/orders/:id' });
+    await row.getByRole('button', { name: 'URL 복사', exact: true }).click();
+    await expect(page.getByText('복사했습니다')).toBeVisible();
+    expect(await clip()).toBe(expected);
+
+    // 편집기: path를 바꾸면 복사되는 URL도 현재 입력값을 따른다
+    await row.getByRole('button', { name: '편집' }).click();
+    await modal(page).getByPlaceholder('/v2/orders/:id').fill('/changed/path');
+    await modal(page).getByRole('button', { name: 'URL 복사', exact: true }).click();
+    await expect.poll(clip).toBe(`${baseURL}/m/${slug}/changed/path`);
+
+    // 미저장 변경이 있으므로 닫을 때 confirm → 수락
+    page.once('dialog', (d) => void d.accept());
+    await closeBtn(page).click();
+  });
+
   test('G3: 미저장 변경이 있을 때만 닫기 경고', async ({ page }) => {
     await page.goto(`/__admin/#/p/${slug}/rules`);
     const dialogs: string[] = [];

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, emptyResponse, METHODS, STATUS_PRESETS, type Condition, type Project, type ResponseDef, type Rule, type RuleInput } from './api';
+import { useMockUrl } from './mockUrl';
 import { copy, Modal, statusClass, useToast } from './ui';
 
 const headersToText = (h: Record<string, string>) => Object.entries(h).map(([k, v]) => `${k}: ${v}`).join('\n');
@@ -197,6 +198,7 @@ function TryIt({ project, rule }: { project: Project; rule: Rule }) {
 
 export function RuleEditor({ project, rule, onClose, onSaved }: { project: Project; rule: Rule | RuleInput; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
+  const mockUrl = useMockUrl(project);
   const [saved, setSaved] = useState<Rule | null>('id' in rule ? (rule as Rule) : null);
   const [d, setD] = useState<RuleInput>(() => JSON.parse(JSON.stringify(rule)));
   // 응답 카드의 안정적인 key (이동/삭제 시 카드 내부 state가 엉키지 않게)
@@ -294,6 +296,7 @@ export function RuleEditor({ project, rule, onClose, onSaved }: { project: Proje
           {saved && d.selectMode === 'sequential' && (
             <button className="ghost" onClick={() => api.resetCounter(project.id, saved.id).then(() => toast('순차 카운터를 초기화했습니다'))}>카운터 리셋</button>
           )}
+          <button className="ghost" title={mockUrl(d.pathPattern)} onClick={() => copy(mockUrl(d.pathPattern), toast)}>URL 복사</button>
           <button className="ghost" onClick={guardedClose}>닫기</button>
           <button className="primary" onClick={save} disabled={busy}>{busy ? '저장 중…' : '저장 (Ctrl+S)'}</button>
         </div>

@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { api, emptyRule, type Project, type Rule } from './api';
 import { RuleEditor } from './RuleEditor';
-import { useAsync, useToast } from './ui';
+import { useMockUrl } from './mockUrl';
+import { copy, useAsync, useToast } from './ui';
 
 const MODE_LABEL = { fixed: '고정', sequential: '순차', weighted: '가중치', conditional: '조건별' } as const;
 
@@ -11,6 +12,7 @@ export function RulesTab({ project }: { project: Project }) {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Rule | ReturnType<typeof emptyRule> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const mockUrl = useMockUrl(project);
 
   const run = async (fn: () => Promise<unknown>, ok?: string) => {
     try {
@@ -77,6 +79,7 @@ export function RulesTab({ project }: { project: Project }) {
                 </td>
                 <td className="actions">
                   <button className="ghost small" onClick={() => setEditing(r)}>편집</button>
+                  <button className="ghost small" title={mockUrl(r.pathPattern)} onClick={() => copy(mockUrl(r.pathPattern), toast)}>URL 복사</button>
                   <button className="ghost small" onClick={() => run(() => api.duplicateRule(project.id, r.id), '복제했습니다')}>복제</button>
                   <button className="ghost small danger" onClick={() => confirm(`${r.method} ${r.pathPattern} 규칙을 삭제할까요?`) && run(() => api.deleteRule(project.id, r.id), '삭제했습니다')}>삭제</button>
                 </td>

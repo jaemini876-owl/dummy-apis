@@ -10,7 +10,8 @@ const A = '/__admin/api';
 const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url, payload: payload as object });
 
 beforeAll(async () => {
-  ({ app } = await buildApp({ repo: new MemoryRepo(), config: loadConfig(), webDir: '/nonexistent' }));
+  // 로컬 .env의 값(ADMIN_PASSWORD 등)에 테스트가 영향을 받지 않도록 인증은 끈다
+  ({ app } = await buildApp({ repo: new MemoryRepo(), config: { ...loadConfig(), ADMIN_PASSWORD: undefined }, webDir: '/nonexistent' }));
   const res = await post(`${A}/projects`, { slug: 'demo', name: 'Demo' });
   expect(res.statusCode).toBe(201);
   pid = res.json().id;

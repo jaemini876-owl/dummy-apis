@@ -15,6 +15,8 @@ const schema = z.object({
   PORT: z.preprocess(blank, z.coerce.number().default(3000)),
   SUPABASE_URL: z.preprocess(blank, z.string().url().optional()),
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess(blank, z.string().optional()),
+  ADMIN_USER: z.preprocess(blank, z.string().default('admin')),
+  ADMIN_PASSWORD: z.preprocess(blank, z.string().optional()),
   PUBLIC_BASE_URL: z.preprocess(blank, z.string().url().optional()),
   LOG_RETENTION_DAYS: z.preprocess(blank, z.coerce.number().default(7)),
   LOG_MAX_PER_PROJECT: z.preprocess(blank, z.coerce.number().default(5000)),

@@ -11,6 +11,17 @@ const PNG = Buffer.from(
 const modal = (page: Page) => page.locator('.modal');
 const closeBtn = (page: Page) => page.locator('button.ghost', { hasText: /^닫기$/ });
 
+test.describe('관리 콘솔 인증', () => {
+  test('자격 증명 없이는 관리 API 401, 모의 API·healthz는 열려 있음', async ({ playwright, baseURL }) => {
+    const anon = await playwright.request.newContext({ baseURL, httpCredentials: undefined });
+    expect((await anon.get('/__admin/api/projects')).status()).toBe(401);
+    expect((await anon.get('/__admin/')).status()).toBe(401);
+    expect((await anon.get('/healthz')).status()).toBe(200);
+    expect((await anon.get('/m/nope/x')).status()).toBe(404); // project_not_found (인증 오류 아님)
+    await anon.dispose();
+  });
+});
+
 test.describe.serial('관리 콘솔 스모크', () => {
   test('프로젝트 생성 → 규칙 생성 → Try it → 로그 확인', async ({ page }) => {
     await page.goto('/__admin/');

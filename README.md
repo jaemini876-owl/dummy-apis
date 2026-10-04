@@ -38,6 +38,7 @@ npm start                 # http://localhost:3000/__admin/
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | 설정 시 Supabase 사용. **service role key는 서버 환경변수로만 보관** |
 | `DATA_FILE` | Supabase 미설정 시 로컬 JSON 경로 (기본 `data/db.json`, 로그는 저장 안 함) |
 | `PUBLIC_BASE_URL` | 연결 가이드/QR에 표시할 외부 URL |
+| `ADMIN_PASSWORD`, `ADMIN_USER` | 설정하면 관리 콘솔(`/__admin`, `/__admin/api`)에 HTTP Basic 인증 적용 (사용자 기본 `admin`). `/m/*`(앱 호출)와 `/healthz`는 항상 공개. **외부 공개 시 필수**, HTTPS와 함께 사용 |
 | `LOG_RETENTION_DAYS`, `LOG_MAX_PER_PROJECT` | 로그 정리 기준 (기본 7일 / 프로젝트당 5000건) |
 
 ## Supabase 설정
@@ -61,7 +62,8 @@ docker run -d -p 3000:3000 --env-file .env dummy-api
 
 이 서버는 **더미/테스트 환경 전용**입니다.
 
-- **인증 없음:** 관리 콘솔과 관리 API(`/__admin`)는 URL을 아는 누구나 규칙을 수정·삭제할 수 있습니다. 사내망/VPN/리버스 프록시 인증 등 호스트 레벨에서 접근을 제한하세요.
+- **관리 콘솔 인증은 `ADMIN_PASSWORD`를 설정해야 켜집니다.** 미설정이면 URL을 아는 누구나 규칙을 수정·삭제할 수 있으니 사내망/VPN 등으로 제한하세요. Basic 인증은 비밀번호가 평문(Base64)으로 오가므로 **반드시 HTTPS**로 노출하고 추측하기 어려운 비밀번호를 쓰세요. 단일 공유 계정이며 시도 횟수 제한은 없습니다.
+- **`/m/*`는 인증이 없습니다.** slug를 아는 누구나 모의 API를 호출할 수 있고 그 호출이 로그에 남습니다 (프로젝트별 API 키는 미구현).
 - **요청 로그에 민감값 저장:** 요청 바디(최대 64KB)와 헤더가 그대로 로그(Supabase 포함)에 저장됩니다. **실제 토큰·비밀번호·개인정보를 이 서버로 보내지 마세요.**
 - **timeout 장애 시뮬레이션:** `timeout` 응답은 최대 120초 동안 연결을 점유합니다. 외부에 노출된 서버에서는 반복 호출로 자원이 소모될 수 있으니 사내망에서만 운영하세요.
 - `SUPABASE_SERVICE_ROLE_KEY`는 서버 환경변수로만 두고 저장소에 커밋하지 마세요 (`.env`는 `.gitignore`에 포함).

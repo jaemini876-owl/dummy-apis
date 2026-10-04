@@ -13,11 +13,19 @@ export default defineConfig({
   workers: 1,
   timeout: 30_000,
   reporter: [['list']],
-  use: { baseURL: `http://localhost:${PORT}`, trace: 'retain-on-failure' },
+  // 관리 콘솔 Basic 인증을 켠 상태로 전체 UI(fetch·SSE 포함)를 검증한다
+  use: { baseURL: `http://localhost:${PORT}`, trace: 'retain-on-failure', httpCredentials: { username: 'admin', password: 'e2e-pass' } },
   webServer: {
     command: `node ${resolve('server/dist/index.js')}`,
     cwd: runDir,
-    env: { PORT: String(PORT), SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '', DATA_FILE: resolve(runDir, 'db.json') },
+    env: {
+      PORT: String(PORT),
+      SUPABASE_URL: '',
+      SUPABASE_SERVICE_ROLE_KEY: '',
+      DATA_FILE: resolve(runDir, 'db.json'),
+      ADMIN_USER: 'admin',
+      ADMIN_PASSWORD: 'e2e-pass',
+    },
     url: `http://localhost:${PORT}/healthz`,
     reuseExistingServer: false,
     timeout: 30_000,

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { registerAdminRoutes } from './admin/routes.js';
+import { registerAdminAuth } from './auth/adminAuth.js';
 import { RuleCache } from './cache/ruleCache.js';
 import type { Config } from './config.js';
 import { RequestLogger } from './logs/logger.js';
@@ -22,6 +23,7 @@ export async function buildApp({ repo, config, webDir, logger: log = false }: Ap
   const cache = new RuleCache(repo);
   const logger = new RequestLogger(repo);
 
+  registerAdminAuth(app, config); // 라우트보다 먼저 등록해야 훅이 적용된다
   app.get('/healthz', async () => ({ ok: true }));
   registerMockRoutes(app, { cache, logger });
   registerAdminRoutes(app, { repo, cache, logger, config });

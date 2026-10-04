@@ -75,7 +75,10 @@ docker run -d -p 3000:3000 --env-file .env dummy-api
 
 ```bash
 npm test     # Vitest: 매처/선택기/템플릿 단위 + Fastify 통합 테스트
+npm run build && npm run test:e2e   # Playwright 스모크 (최초 1회 `npx playwright install chromium`)
 ```
+
+E2E는 `.env`가 없는 별도 디렉터리에서 서버를 파일 저장소 모드(포트 3100)로 띄우므로 Supabase 데이터에 영향을 주지 않습니다.
 
 ## 구조
 

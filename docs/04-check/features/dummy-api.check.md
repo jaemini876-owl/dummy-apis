@@ -27,7 +27,7 @@
 | 미등록 요청 로그 → 규칙 변환 | ✅ (API·UI 코드. UI 클릭 동작은 미검증) |
 | 팀원 2명 이상 프로젝트 분리 사용 | ✅ 프로젝트별 규칙/로그/캐시 분리 (동시 사용자 부하 미검증) |
 | 매칭 오버헤드 수 ms 이내 | △ 메모리 캐시 경로라 문제 없을 것으로 보이나 벤치마크 미실시 |
-| `.env`만 넣고 기동 / `docker run` | △ 로컬·Supabase 기동 ✅, Docker 미검증 |
+| `.env`만 넣고 기동 / `docker run` | ✅ 로컬·Supabase 기동, Docker 빌드/기동/헬스체크 (Docker + Supabase 조합은 미실시) |
 | 실기기·에뮬레이터 호출 | ❌ 미검증 |
 | Auth 도입 시 마이그레이션 불필요한 스키마 | ✅ `project_id`/`owner_id`/`project_members` 준비, `getCurrentUser()` 단일 진입점 |
 
@@ -60,7 +60,7 @@
 
 ### 진행 메모 (2026-10-05)
 - R2–R4 주의사항을 README "보안 주의사항"에 문서화함 (위험 자체는 유지).
-- `docker build`: 이 PC에 Docker가 없어 미검증.
+- `docker build` 검증 완료 (Docker 29.8.1): 이미지 빌드(315MB), 컨테이너 기동, `/healthz`·`/__admin/` 200, 규칙 등록 후 모의 호출 정상. **결함 발견·수정(B2)**: HEALTHCHECK가 `localhost`(alpine에서 `::1`)로 접속해 연결 거부 → `127.0.0.1`로 변경, 재빌드 후 `healthy` 확인. 남은 참고: 컨테이너가 root로 실행됨(비root 전환 후보), Supabase 연결로 컨테이너를 띄워 보는 확인은 미실시(`--env-file .env` 필요).
 
 ## 4. 종합
 - 핵심 요구(개발자 정의 path로 등록 → 호출 시 200 또는 지정 상태 코드 응답, 팀 공유, Supabase, 유저 기반 확장 대비)는 **구현·검증됨**.

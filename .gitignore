@@ -5,3 +5,5 @@ data
 e2e/.run
 test-results
 playwright-report
+
+.claude/settings.local.json

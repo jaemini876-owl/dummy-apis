@@ -198,6 +198,7 @@
 7. Import/Export 범위: 규칙 전체(headers·body 포함) JSON — 이미 구현됨, v4는 보완만 ✅
 8. 비용 0 운영: 같은 사무실 망/Wi-Fi에서 내부 IP로 접속 (터널은 부록) ✅
 9. 응답 headers·body 프리셋: 전역, 별도 JSON Import/Export ✅ / 선택 Export는 생략 ✅
+10. 저장소: **Supabase 무료 플랜**(팀 10명 내외). 로컬 JSON 모드는 테스트·개발·폴백용으로 유지. 일시정지·백업 없음에 대비해 JSON Export를 백업 수단으로 안내 ✅
 
 ### 남은 확인 사항 (Design 단계 전에 답 주시면 좋음)
 - ~~응답 headers·body 프리셋~~ → **필요함 (확정, D-7)**

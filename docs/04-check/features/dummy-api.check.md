@@ -89,59 +89,72 @@
 | 서버 `tsc --noEmit`, 서버·웹 `npm run build` | 성공 |
 | Vitest | **41/41 통과** (v4 17건 포함: 프리셋 CRUD·유일성·한도, round-trip, 병합/교체, dryRun 불변, 422 + 항목·필드 경로, v1 호환, kind 불일치 안내, MemoryRepo 원자성, 구 `db.json` 호환, 인증 적용) |
 | Playwright E2E | **9/9 통과** (기존 5 + v4 4: 프리셋 저장→타 프로젝트 적용→실제 호출, 겹친 모달 Esc, 프리셋 Export→삭제→Import, 잘못된 규칙 파일 오류 표시·불변·올바른 파일 가져오기) |
-| **Supabase 실연결 (임시 프로젝트, 13/13)** | 스크립트로 앱을 Supabase 저장소에 연결해 실행. 임시 프로젝트 2개 생성·검증 후 삭제(남은 임시 프로젝트 0). 기존 데이터와 프리셋 테이블은 건드리지 않음. 아래 2장 참조 |
+| **Supabase 실연결 (임시 프로젝트, 23/23 — 마이그레이션 적용 후)** | 스크립트로 앱을 Supabase 저장소에 연결해 실행. 1차(0003·0004 적용 전) 13/13 → 사용자가 0003·0004 적용 → 2차에서 결함 발견·수정(아래 B3) → `0004` 재적용 후 **23/23**. 임시 프로젝트·프리셋은 실행 후 모두 삭제(전체 프리셋 0개로 복원). 기존 데이터는 건드리지 않음. 2장 참조 |
 | 같은 망 접속(로컬) | 임시 서버(파일 모드, 포트 3199)를 띄워 LAN IPv4 3개(`172.22.x`, `192.168.55.x`, `192.168.32.x`)로 `/healthz` 200, `/__admin/` 200, `/m/x/y` 404 확인 → `0.0.0.0` 바인딩 실증 |
 
 ## 2. Supabase 실연결 결과
 
-> **핵심 발견: 대상 Supabase에 `0003_presets.sql`, `0004_import_rules_rpc.sql`이 아직 적용되어 있지 않다.** 따라서 이 DB를 쓰는 서버에서는 지금 **프리셋 기능이 `503 migration_required`** 로 동작하지 않는다 (아래 A 항목). SQL 실행(DDL)은 서비스 키로 할 수 없어 사용자가 SQL Editor에서 직접 적용해야 한다.
-
-| # | 항목 | 결과 |
+| 단계 | 내용 | 결과 |
 |---|---|---|
-| A | `presets` 테이블(0003) | **미적용** → `GET /presets`가 503 `migration_required`로 응답 (의도한 오류 경로 동작 확인) |
-| B | `import_rules` / `import_presets` RPC(0004) | **미적용** → 서버가 경고 로그와 함께 폴백 경로 사용 (경고 출력 확인) |
-| C1–C2 | export → 새 프로젝트 import round-trip | ✅ method/path/조건/다중 응답/지연/장애/바이너리 포함 모든 필드 동일 |
-| C4–C7 | 병합(덮어쓰기+신규), 교체, 건수 | ✅ |
-| C8 | 검증을 우회해 DB 수준 실패 유도(교체·병합) → 오류 + 기존 규칙 불변 | ✅ **보상 복구 경로** 검증 (규칙 내용 동일하게 복원) |
+| 1차 (2026-10-09) | 0003·0004 **적용 전** | 13/13. 프리셋 API는 503 `migration_required`(의도한 오류 경로), 규칙 Import는 경고 로그와 함께 **보상 복구 폴백**으로 동작·복구 검증 |
+| 사용자 작업 | SQL Editor에서 `0003`, `0004` 실행 | 성공 |
+| 2차 | 0003·0004 적용 후 | 15/18 — 실패 3건 모두 "실패 유도" 항목. 원인 분석으로 **결함 B3** 발견 (아래) |
+| 사용자 작업 | 수정한 `0004` 재실행 (`create or replace`) | 성공 |
+| **3차 (최종)** | 보강한 스크립트로 재검증 | ✅ **23/23** |
 
-**아직 검증되지 않은 것 (0003/0004 적용 후 재검증 필요)**
-- `0003`/`0004` SQL 자체의 실행 (문법, 제약, 권한 `revoke/grant`)
-- RPC 경로의 트랜잭션 롤백, 프리셋의 Supabase 저장/조회/유일 인덱스(대소문자 무시) 동작
-- 위 검증 스크립트의 D 단계(프리셋 CRUD·병합 import·원자성)는 0003 미적용으로 **실행되지 않았다**. 이 스크립트는 세션 임시 파일이라 **저장소에 포함되어 있지 않다.** 0003/0004 적용 후 요청하면 같은 항목(RPC 롤백·프리셋)을 다시 검증할 수 있다. 프리셋은 전역 테이블이라 스크립트는 기존 프리셋이 있으면 교체 모드 테스트를 건너뛰도록 안전장치를 두었다.
+최종 통과 항목 (모두 RPC 경로, 폴백 경고 없음)
+- A·B: `presets` 테이블, `import_rules`/`import_presets` RPC 적용 확인
+- C1–C2 규칙 export → 새 프로젝트 import round-trip (method/path/조건/다중 응답/지연/장애/바이너리 모두 동일), C4–C7 병합·교체와 건수
+- **C8 쓰기 도중 실패 → 전체 롤백**: 첫 규칙은 정상, 두 번째 규칙이 CHECK 제약 위반 → 오류, 교체·병합 모두 기존 규칙 불변
+- **C9 입력 중복 → `ConflictError`** + 불변 (MemoryRepo와 같은 계약)
+- D1–D4 프리셋 생성, 대소문자만 다른 이름 409(유일 인덱스), 병합 import(덮어쓰기+신규), export 형식
+- **D5·D5b·D6 프리셋 쓰기 도중 실패 / 입력 중복 / 교체 도중 실패 → 롤백**: 교체 모드에서 이미 실행된 전체 삭제까지 되돌아가 기존 프리셋 보존
+- **D7 프리셋 교체 정상 경로(HTTP)**: 생성 1·삭제 2, 교체 후 프리셋은 파일 내용뿐 (B3 회귀 테스트)
+
+### Check 중 발견·수정한 결함 (v4)
+- **B3 (수정 완료, 재검증 통과)** `import_presets` 교체 모드가 Supabase에서 `DELETE requires a WHERE clause`(코드 21000)로 항상 실패. Supabase(PostgREST)가 WHERE 없는 DELETE를 막는 환경이라 `delete from presets;`가 거부됨. Vitest(MemoryRepo)로는 잡을 수 없고 실연결에서만 드러남. → `delete from presets where id is not null;`로 수정. 2차 실행에서 D6이 "통과"로 보인 것은 이 오류로 우연히 실패한 **오탐**이었음 (이후 스크립트를 "쓰기 도중 실패"를 의도적으로 유발하도록 보강해 오탐 제거).
+- **B4 (수정 완료, 재검증 통과)** 입력에 같은 method+path(프리셋은 같은 이름)가 두 번 있으면 RPC는 오류 없이 뒤의 항목으로 덮어씀 — `Repo` 계약(`ConflictError`)·MemoryRepo와 불일치. → RPC가 쓰기 전에 중복을 검사해 `23505`(서버에서 409)로 거부. 서버는 평소 먼저 검증해 422로 막으므로 실사용 영향은 작았음.
+- **검증 중 발생한 실DB 찌꺼기**: 2차 실행의 테스트가 접두사 없는 이름(`dupx`)의 프리셋 1개를 남김. 당시 프리셋 테이블은 비어 있었으므로 사용자 데이터가 아님을 확인하고 삭제함. 이후 스크립트는 모든 임시 데이터를 접두사로 식별해 정리하고 실행 끝에 잔여 개수를 출력함.
 
 ## 3. Plan v4 성공 기준 점검
 
 | 기준 | 상태 |
 |---|---|
-| 규칙 Export → 새 프로젝트 Import 시 모든 필드 동일 (round-trip) | ✅ Vitest(파일 모드) + Supabase 폴백 경로 실연결 |
-| 프리셋을 만들면 어느 프로젝트 편집기에서든 선택해 headers·body를 채움 (전역) | ✅ E2E (다른 프로젝트에서 적용 후 실제 호출 응답까지 확인). **Supabase에서는 0003 적용 전까지 불가** |
-| 편집 중인 응답을 프리셋으로 저장, 프리셋 JSON Export → Import로 복원 | ✅ E2E·Vitest (같은 서버 내 복원. 다른 환경으로의 이동은 파일 기반이라 동일하나 별도 서버 간 테스트는 미실시) |
+| 규칙 Export → 새 프로젝트 Import 시 모든 필드 동일 (round-trip) | ✅ Vitest(파일 모드) + **Supabase RPC 경로 실연결** |
+| 프리셋을 만들면 어느 프로젝트 편집기에서든 선택해 headers·body를 채움 (전역) | ✅ E2E(파일 모드) + Supabase 프리셋 테이블 실연결(생성·유일성·import) |
+| 편집 중인 응답을 프리셋으로 저장, 프리셋 JSON Export → Import로 복원 | ✅ E2E·Vitest·Supabase 실연결(export 형식, 병합/교체 import) |
 | 기존 version 1 파일 그대로 Import | ✅ Vitest |
 | 잘못된 파일은 규칙·필드 위치를 알려주며 거부, 기존 규칙 불변 (병합·교체) | ✅ Vitest·E2E |
-| 교체 Import 중 오류가 나도 기존 규칙 보존 (Supabase·로컬 JSON) | △ 로컬 JSON ✅, Supabase **보상 복구 경로** ✅ 실연결 검증. **RPC 트랜잭션 경로는 0004 미적용으로 미검증** |
+| 교체 Import 중 오류가 나도 기존 규칙 보존 (Supabase·로컬 JSON) | ✅ 로컬 JSON, ✅ Supabase **RPC 트랜잭션 롤백**(규칙·프리셋 모두)·보상 복구 폴백 양쪽 실연결 검증 |
 | 같은 Wi-Fi 실기기에서 `http://<PC IP>:3000/m/<slug>/...` 호출 (방화벽 포함) | △ 서버가 LAN IP로 응답함은 확인. **다른 기기에서의 접속은 미검증.** 이 PC의 활성 네트워크는 "개인" 프로필이지만 방화벽이 켜져 있고 `node`/`dummy` 허용 인바운드 규칙이 확인되지 않았다 → README 3단계(방화벽 규칙 추가)가 필요할 가능성이 높다 |
 
 ## 4. 설계 대비 갭
 
 | # | 항목 | 상태 | 영향 |
 |---|---|---|---|
-| G11 | **Supabase 마이그레이션 0003·0004 미적용** | 사용자 작업 필요 (SQL Editor에서 번호 순서로 실행). 적용 전 프리셋 기능 불가 | **높음 (적용 전까지 프리셋 사용 불가)** |
+| G11 | Supabase 마이그레이션 0003·0004 | ✅ 해소: 적용 완료, 실연결 23/23 | — |
 | G12 | 겹친 모달 Esc 자동 테스트 부재 | ✅ 해소: E2E 추가·통과 | — |
 | G13 | 다른 기기에서의 접속(방화벽) 미검증 | 사용자 환경 확인 필요 (README "같은 사무실 망" 절차 수행 후 실기기 호출) | 중간 |
-| G14 | 폴백(보상) 경로는 실패 시 규칙 ID가 새로 발급됨 | 규칙 내용은 복원되지만, 롤백 시 id가 바뀌어 순차 응답 카운터가 초기화될 수 있음. 0004 적용 시 RPC 롤백이 id를 보존하므로 자연 해소 | 낮음 |
+| G14 | 폴백(보상) 경로는 실패 시 규칙 ID가 새로 발급됨 | RPC 경로(0004 적용됨)에서는 롤백이 id를 보존하므로 평상시에는 해당 없음. 0004 미적용 환경에서만 해당 | 낮음 |
 | G15 | 프리셋 선택 UI가 설계(드롭다운)와 다른 모달 목록 | 의도적 변경 (Do 문서 기재) | 낮음 |
+| G16 | 새 RPC의 `revoke/grant`(anon·authenticated 호출 차단) 미확인 | 서비스 키로는 확인 불가 — 아래 SQL을 SQL Editor에서 실행해 확인 필요 (`replace_rule` 때와 같은 방식) | 중간 (보안) |
 
-### Check 중 발견한 사항
-- 구현 중 테스트로 발견·수정된 결함(프리셋 파일을 규칙 Import에 올릴 때 안내 누락)은 이미 반영됨 (`0ef53e9`).
-- README에 가상 어댑터(WSL/Hyper-V/VPN) IP 혼동 주의 문구를 추가함 (이 PC에서 LAN 후보가 3개 확인됨).
+G16 확인용 SQL (모두 `false`가 나와야 하고 `service_role`만 `true`):
+```sql
+select
+  has_function_privilege('anon',          'import_rules(uuid,text,jsonb)', 'execute') as rules_anon,
+  has_function_privilege('authenticated', 'import_rules(uuid,text,jsonb)', 'execute') as rules_auth,
+  has_function_privilege('service_role',  'import_rules(uuid,text,jsonb)', 'execute') as rules_service,
+  has_function_privilege('anon',          'import_presets(text,jsonb)',    'execute') as presets_anon,
+  has_function_privilege('authenticated', 'import_presets(text,jsonb)',    'execute') as presets_auth,
+  has_function_privilege('service_role',  'import_presets(text,jsonb)',    'execute') as presets_service;
+```
 
 ## 5. 종합
-- 서버·웹·테스트 범위의 v4 요구는 **구현·검증됨** (Vitest 41, E2E 9, 빌드/타입체크).
-- **출시(실사용) 전 필수:** ① Supabase에 `0003`, `0004` 적용 → 검증 스크립트 재실행 ② 방화벽 규칙 추가 후 같은 Wi-Fi 기기에서 호출 확인.
-- 위 두 가지가 끝나기 전까지 v4는 "코드 완료, 운영 환경 검증 대기" 상태다.
+- v4 요구는 **구현·검증됨**: Vitest 41, E2E 9, 빌드/타입체크, Supabase 실연결 23/23(RPC 롤백·프리셋 포함). 실연결 검증으로 단위 테스트가 못 잡는 결함(B3, B4)을 찾아 수정했다.
+- 남은 확인: ① 위 `has_function_privilege` 결과(G16) ② 방화벽 규칙을 추가하고 같은 Wi-Fi의 다른 기기에서 호출(G13).
 
-## 6. 권장 후속 (우선순위순)
-1. Supabase SQL Editor에서 `0003_presets.sql` → `0004_import_rules_rpc.sql` 실행 (G11)
-2. 적용 후 Supabase 검증 재실행 (RPC 롤백·프리셋·대소문자 유일 인덱스·`revoke/grant` 권한 확인) — 검증 스크립트는 저장소에 없으므로 재작성/재실행 요청 필요
-3. 서버 PC 방화벽 규칙 추가, 같은 Wi-Fi 실기기/에뮬레이터에서 `http://<PC IP>:3000/m/<slug>/...` 호출 (G13)
-4. 위 확인이 끝나면 Report/완료 처리
+## 6. 권장 후속
+1. G16 SQL 실행 결과 확인 (anon·authenticated가 `false`)
+2. 서버 PC 방화벽 규칙 추가 후 같은 Wi-Fi 실기기/에뮬레이터에서 `http://<PC IP>:3000/m/<slug>/...` 호출 (G13)
+3. 위 두 가지 확인 뒤 완료 처리 (Report 단계)

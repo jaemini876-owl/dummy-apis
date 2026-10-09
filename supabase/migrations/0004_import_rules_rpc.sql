@@ -1,6 +1,7 @@
 -- v4: 규칙/프리셋 일괄 가져오기를 단일 트랜잭션(함수 1회 호출)으로 수행한다.
 -- 중간에 실패하면 전부 롤백되므로 replace 모드에서도 기존 데이터가 사라지지 않는다.
 -- 적용 전에는 서버가 경고 로그와 함께 보상(복구 시도) 방식으로 폴백한다. 0003 적용 후 실행.
+-- `create or replace`라 여러 번 실행해도 안전하다 (수정본을 다시 적용할 때도 그대로 실행하면 된다).
 
 create or replace function import_rules(p_project_id uuid, p_mode text, p_rules jsonb)
 returns jsonb
@@ -16,6 +17,14 @@ declare
 begin
   if p_mode not in ('merge', 'replace') then
     raise exception 'invalid import mode: %', p_mode;
+  end if;
+
+  -- 같은 method+path가 입력에 두 번 있으면 거부(23505 → 서버에서 409). 아무것도 쓰기 전에 검사한다.
+  if exists (
+    select 1 from jsonb_array_elements(p_rules) e
+    group by e->>'method', e->>'path_pattern' having count(*) > 1
+  ) then
+    raise exception 'duplicate rule (method, path) in import' using errcode = '23505';
   end if;
 
   if p_mode = 'replace' then
@@ -76,8 +85,17 @@ begin
     raise exception 'invalid import mode: %', p_mode;
   end if;
 
+  -- 이름(대소문자·공백 무시)이 입력에 두 번 있으면 거부(23505 → 서버에서 409)
+  if exists (
+    select 1 from jsonb_array_elements(p_presets) e
+    group by lower(btrim(e->>'name')) having count(*) > 1
+  ) then
+    raise exception 'duplicate preset name in import' using errcode = '23505';
+  end if;
+
   if p_mode = 'replace' then
-    delete from presets;
+    -- Supabase(PostgREST)는 WHERE 없는 DELETE를 막는다(pg-safeupdate) → 조건을 명시
+    delete from presets where id is not null;
     get diagnostics v_deleted = row_count;
   end if;
 

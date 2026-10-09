@@ -157,6 +157,18 @@ test.describe.serial('프리셋 / 가져오기 (v4)', () => {
     expect(await res.json()).toEqual({ error: 'token_expired' });
   });
 
+  test('겹친 모달에서 Esc는 가장 위의 모달만 닫는다', async ({ page }) => {
+    await page.goto(`/__admin/#/p/${slug}/rules`);
+    await page.getByRole('button', { name: '+ 새 규칙' }).click();
+    await modal(page).getByRole('button', { name: '프리셋 불러오기' }).click();
+    await expect(page.locator('.modal')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.modal')).toHaveCount(1); // 프리셋 목록만 닫히고 편집기는 유지
+    await expect(page.getByPlaceholder('/v2/orders/:id')).toBeVisible();
+    await page.keyboard.press('Escape'); // 변경이 없으므로 확인 없이 편집기가 닫힘
+    await expect(page.locator('.modal')).toHaveCount(0);
+  });
+
   test('프리셋 Export → 삭제 → Import 로 복원', async ({ page }) => {
     await page.goto('/__admin/#/presets');
     await expect(page.locator('tbody tr', { hasText: presetName })).toBeVisible();

@@ -60,6 +60,38 @@ export interface LogEntry {
   latencyMs: number;
   createdAt: string;
 }
+/** 응답 내용(content-type/headers/body)만 담은 전역 프리셋. 적용하면 응답으로 복사된다. */
+export interface Preset {
+  id: string;
+  name: string;
+  contentType: string;
+  headers: Record<string, string>;
+  body: string | null;
+  bodyBase64: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export type PresetInput = Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>;
+
+export type ImportMode = 'merge' | 'replace';
+export interface ImportIssue {
+  index: number; // 0이면 파일 전체 수준
+  label: string | null;
+  path: string;
+  message: string;
+}
+export interface ImportReport {
+  ok: boolean;
+  mode: ImportMode;
+  summary: { create: number; update: number; delete: number };
+  issues: ImportIssue[];
+}
+export interface ImportDone {
+  created: number;
+  updated: number;
+  deleted: number;
+}
+
 export interface ServerInfo {
   version: string;
   port: number;
@@ -105,8 +137,16 @@ export const api = {
   toggleRule: (pid: string, rid: string, enabled: boolean) => req<Rule>('PATCH', `/projects/${pid}/rules/${rid}/enabled`, { enabled }),
   resetCounter: (pid: string, rid: string) => req<void>('POST', `/projects/${pid}/rules/${rid}/reset-counter`),
   exportRules: (pid: string) => req<unknown>('GET', `/projects/${pid}/export`),
-  importRules: (pid: string, data: unknown, mode: 'merge' | 'replace') =>
-    req<{ created: number; updated: number }>('POST', `/projects/${pid}/import?mode=${mode}`, data),
+  previewImportRules: (pid: string, data: unknown, mode: ImportMode) =>
+    req<ImportReport>('POST', `/projects/${pid}/import?mode=${mode}&dryRun=true`, data),
+  importRules: (pid: string, data: unknown, mode: ImportMode) => req<ImportDone>('POST', `/projects/${pid}/import?mode=${mode}`, data),
+  presets: () => req<Preset[]>('GET', '/presets'),
+  createPreset: (b: PresetInput) => req<Preset>('POST', '/presets', b),
+  updatePreset: (id: string, b: PresetInput) => req<Preset>('PUT', `/presets/${id}`, b),
+  deletePreset: (id: string) => req<void>('DELETE', `/presets/${id}`),
+  exportPresets: () => req<unknown>('GET', '/presets/export'),
+  previewImportPresets: (data: unknown, mode: ImportMode) => req<ImportReport>('POST', `/presets/import?mode=${mode}&dryRun=true`, data),
+  importPresets: (data: unknown, mode: ImportMode) => req<ImportDone>('POST', `/presets/import?mode=${mode}`, data),
   logs: (pid: string, matched?: boolean) => req<LogEntry[]>('GET', `/projects/${pid}/logs?limit=200${matched === undefined ? '' : `&matched=${matched}`}`),
   clearLogs: (pid: string) => req<void>('DELETE', `/projects/${pid}/logs`),
   logToRule: (pid: string, lid: string) => req<Rule>('POST', `/projects/${pid}/logs/${lid}/to-rule`, {}),

@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { MigrationRequiredError } from './errors.js';
 import { MemoryRepo } from './repo/memory.js';
 import type { Repo } from './repo/repo.js';
 import { SupabaseRepo } from './repo/supabase.js';
@@ -31,3 +32,14 @@ process.on('SIGTERM', shutdown);
 
 await app.listen({ port: config.PORT, host: '0.0.0.0' });
 console.log(`Dummy API ready → http://localhost:${config.PORT}/__admin/`);
+
+// Supabase 사용 시 시작 점검(서버 기동은 막지 않음): 마이그레이션 적용 여부와 연결 상태를 안내한다
+if (repo instanceof SupabaseRepo) {
+  repo.listPresets().catch((e: Error) => {
+    if (e instanceof MigrationRequiredError) console.warn(`[storage] ${e.message}`);
+    else
+      console.warn(
+        `[storage] Supabase 연결 확인 실패: ${e.message}\n  가능한 원인: URL/키 오류, 네트워크 문제, 또는 무료 플랜 프로젝트의 자동 일시정지(장기간 접속이 없을 때). 대시보드에서 프로젝트를 Restore한 뒤 서버를 재시작하세요.`,
+      );
+  });
+}

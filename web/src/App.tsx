@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type Project } from './api';
 import { GuideTab } from './GuideTab';
 import { LogsTab } from './LogsTab';
+import { PresetsPage } from './PresetsPage';
 import { RulesTab } from './RulesTab';
 import { SettingsTab } from './SettingsTab';
 import { copy, Modal, ToastProvider, useAsync, useToast } from './ui';
@@ -14,10 +15,10 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
-function parseHash(): { slug: string | null; tab: Tab } {
+function parseHash(): { slug: string | null; tab: Tab; presets: boolean } {
   const m = /^#\/p\/([^/]+)(?:\/(\w+))?/.exec(location.hash);
   const tab = (TABS.find((t) => t[0] === m?.[2])?.[0] ?? 'rules') as Tab;
-  return { slug: m ? decodeURIComponent(m[1]) : null, tab };
+  return { slug: m ? decodeURIComponent(m[1]) : null, tab, presets: /^#\/presets\/?$/.test(location.hash) };
 }
 
 function useRoute() {
@@ -69,7 +70,10 @@ function ProjectList() {
     <main className="page">
       <header className="top">
         <h1>Dummy API Console</h1>
-        <button className="primary" onClick={() => setCreating(true)}>+ 새 프로젝트</button>
+        <div className="row">
+          <a href="#/presets" className="btn-link">응답 프리셋</a>
+          <button className="primary" onClick={() => setCreating(true)}>+ 새 프로젝트</button>
+        </div>
       </header>
       <p className="muted">프로젝트마다 고유한 베이스 URL이 생기고, 그 아래에서 원하는 path/응답을 등록해 앱에서 호출할 수 있습니다.</p>
       {error && <div className="banner err">{error}</div>}
@@ -107,7 +111,7 @@ function ProjectView({ slug, tab }: { slug: string; tab: Tab }) {
     <main className="page">
       <header className="top">
         <div>
-          <a href="#/" className="crumb">← 프로젝트</a>
+          <a href="#/" className="crumb">← 프로젝트</a> <span className="muted">·</span> <a href="#/presets" className="crumb">응답 프리셋</a>
           <h1>{project?.name ?? slug}</h1>
           <code className="muted">/m/{slug}</code>
         </div>
@@ -128,6 +132,6 @@ function ProjectView({ slug, tab }: { slug: string; tab: Tab }) {
 }
 
 export function App() {
-  const { slug, tab } = useRoute();
-  return <ToastProvider>{slug ? <ProjectView slug={slug} tab={tab} /> : <ProjectList />}</ToastProvider>;
+  const { slug, tab, presets } = useRoute();
+  return <ToastProvider>{presets ? <PresetsPage /> : slug ? <ProjectView slug={slug} tab={tab} /> : <ProjectList />}</ToastProvider>;
 }

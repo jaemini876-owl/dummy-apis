@@ -2,7 +2,8 @@ import { useRef, useState } from 'react';
 import { api, emptyRule, type Project, type Rule } from './api';
 import { RuleEditor } from './RuleEditor';
 import { useMockUrl } from './mockUrl';
-import { copy, useAsync, useToast } from './ui';
+import { ImportModal } from './ImportModal';
+import { copy, downloadJson, useAsync, useToast } from './ui';
 
 const MODE_LABEL = { fixed: '고정', sequential: '순차', weighted: '가중치', conditional: '조건별' } as const;
 
@@ -11,6 +12,7 @@ export function RulesTab({ project }: { project: Project }) {
   const { data: rules, error, reload } = useAsync(() => api.rules(project.id), [project.id]);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Rule | ReturnType<typeof emptyRule> | null>(null);
+  const [importing, setImporting] = useState<{ fileName: string; data: unknown } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mockUrl = useMockUrl(project);
 
@@ -25,21 +27,18 @@ export function RulesTab({ project }: { project: Project }) {
   };
 
   const doExport = async () => {
-    const data = await api.exportRules(project.id);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-    a.download = `${project.slug}-rules.json`;
-    a.click();
-  };
-  const doImport = async (file: File) => {
     try {
-      const data = JSON.parse(await file.text());
-      const replace = confirm('기존 규칙을 모두 교체할까요?\n확인 = 교체, 취소 = 병합(같은 method+path는 덮어쓰기)');
-      const r = await api.importRules(project.id, data, replace ? 'replace' : 'merge');
-      toast(`가져오기 완료: 생성 ${r.created}, 갱신 ${r.updated}`);
-      reload();
+      downloadJson(`${project.slug}-rules.json`, await api.exportRules(project.id));
     } catch (e: any) {
-      toast(`가져오기 실패: ${e.message}`, true);
+      toast(e.message, true);
+    }
+  };
+  // 파일을 읽어 가져오기 창(검증 미리보기)을 연다. 실제 반영은 창에서 확인한 뒤에만 일어난다.
+  const pickFile = async (file: File) => {
+    try {
+      setImporting({ fileName: file.name, data: JSON.parse(await file.text()) });
+    } catch {
+      toast('JSON 파일을 읽지 못했습니다. 올바른 JSON인지 확인하세요', true);
     }
   };
 
@@ -50,12 +49,13 @@ export function RulesTab({ project }: { project: Project }) {
       <div className="row between wrap">
         <input className="search" placeholder="path / 이름 검색" value={q} onChange={(e) => setQ(e.target.value)} />
         <div className="row">
-          <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
+          <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => (e.target.files?.[0] && pickFile(e.target.files[0]), (e.target.value = ''))} />
           <button className="ghost" onClick={() => fileRef.current?.click()}>Import</button>
           <button className="ghost" onClick={doExport}>Export</button>
           <button className="primary" onClick={() => setEditing(emptyRule())}>+ 새 규칙</button>
         </div>
       </div>
+      <p className="muted small-note">Export 파일에는 Headers/Body가 그대로 들어갑니다. 토큰 같은 민감한 값이 있다면 공유·커밋 전에 확인하세요. 자주 쓰는 응답은 <a href="#/presets">프리셋</a>으로 저장해 재사용할 수 있습니다.</p>
       {error && <div className="banner err">{error}</div>}
       {rules?.length === 0 && (
         <div className="empty">
@@ -95,6 +95,21 @@ export function RulesTab({ project }: { project: Project }) {
           rule={editing}
           onClose={() => setEditing(null)}
           onSaved={reload}
+        />
+      )}
+      {importing && (
+        <ImportModal
+          noun="규칙"
+          fileName={importing.fileName}
+          existingCount={rules?.length}
+          preview={(mode) => api.previewImportRules(project.id, importing.data, mode)}
+          run={(mode) => api.importRules(project.id, importing.data, mode)}
+          onClose={() => setImporting(null)}
+          onDone={(r) => {
+            toast(`가져오기 완료: 신규 ${r.created}, 덮어쓰기 ${r.updated}${r.deleted ? `, 삭제 ${r.deleted}` : ''}`);
+            setImporting(null);
+            reload();
+          }}
         />
       )}
     </section>

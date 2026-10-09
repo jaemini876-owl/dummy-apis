@@ -1,17 +1,53 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { ConflictError } from '../errors.js';
-import { DEFAULT_SETTINGS, type LogEntry, type Project, type ProjectSettings, type ResponseDef, type Rule, type RuleInput } from '../types.js';
+import { ConflictError, MigrationRequiredError } from '../errors.js';
+import {
+  DEFAULT_SETTINGS,
+  type ImportMode,
+  type ImportResult,
+  type LogEntry,
+  type Preset,
+  type PresetInput,
+  type Project,
+  type ProjectSettings,
+  type ResponseDef,
+  type Rule,
+  type RuleInput,
+} from '../types.js';
 import type { LogQuery, Repo } from './repo.js';
 
 type Row = Record<string, any>;
 
+// PGRST205: PostgREST 스키마 캐시에 테이블 없음, 42P01: undefined_table
+const TABLE_MISSING = new Set(['PGRST205', '42P01']);
+
 function unwrap<T>(res: { data: T | null; error: { code?: string; message: string } | null }): T {
   if (res.error) {
     if (res.error.code === '23505') throw new ConflictError(res.error.message);
+    if (res.error.code && TABLE_MISSING.has(res.error.code))
+      throw new MigrationRequiredError(`DB 마이그레이션이 필요합니다 (supabase/migrations/0003_presets.sql, 0004_import_rules_rpc.sql 적용): ${res.error.message}`);
     throw new Error(res.error.message);
   }
   return res.data as T;
 }
+
+const toPreset = (r: Row): Preset => ({
+  id: r.id,
+  name: r.name,
+  contentType: r.content_type,
+  headers: r.headers ?? {},
+  body: r.body,
+  bodyBase64: r.body_base64,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
+
+const fromPreset = (p: PresetInput) => ({
+  name: p.name,
+  content_type: p.contentType,
+  headers: p.headers,
+  body: p.body,
+  body_base64: p.bodyBase64,
+});
 
 const toProject = (r: Row): Project => ({
   id: r.id,
@@ -177,6 +213,109 @@ export class SupabaseRepo implements Repo {
   }
   async deleteRule(id: string) {
     return unwrap(await this.db.from('rules').delete().eq('id', id).select('id')).length > 0;
+  }
+
+  private importRpcMissingWarned = false;
+  private warnImportRpcMissing() {
+    if (this.importRpcMissingWarned) return;
+    this.importRpcMissingWarned = true;
+    console.warn('[storage] import_rules/import_presets RPC 없음 — supabase/migrations/0004_import_rules_rpc.sql 적용 전까지 보상(복구 시도) 방식 사용. 완전한 원자성이 보장되지 않습니다');
+  }
+  // 가져오기는 import_rules RPC(0004)로 단일 트랜잭션 처리한다. 함수가 없으면 보상 방식으로 폴백한다.
+  async importRules(projectId: string, inputs: RuleInput[], mode: ImportMode): Promise<ImportResult> {
+    const { data, error } = await this.db.rpc('import_rules', {
+      p_project_id: projectId,
+      p_mode: mode,
+      p_rules: inputs.map((i) => ({
+        ...this.ruleRow(i),
+        responses: i.responses.map((r) => {
+          const { rule_id: _ruleId, ...rest } = fromResponse('', r);
+          return rest;
+        }),
+      })),
+    });
+    if (!error) return data as ImportResult;
+    if (error.code !== 'PGRST202') unwrap({ data: null, error });
+    this.warnImportRpcMissing();
+    return this.importRulesCompensating(projectId, inputs, mode);
+  }
+  private async importRulesCompensating(projectId: string, inputs: RuleInput[], mode: ImportMode): Promise<ImportResult> {
+    const snapshot = await this.listRules(projectId);
+    try {
+      if (mode === 'replace') for (const r of snapshot) await this.deleteRule(r.id);
+      const existing = mode === 'replace' ? [] : snapshot;
+      let created = 0;
+      let updated = 0;
+      for (const input of inputs) {
+        const same = existing.find((e) => e.method === input.method && e.pathPattern === input.pathPattern);
+        if (same) {
+          await this.replaceRule(same.id, input);
+          updated++;
+        } else {
+          await this.createRule(projectId, input);
+          created++;
+        }
+      }
+      return { created, updated, deleted: mode === 'replace' ? snapshot.length : 0 };
+    } catch (e) {
+      try {
+        for (const r of await this.listRules(projectId)) await this.deleteRule(r.id);
+        for (const r of snapshot) await this.createRule(projectId, r);
+      } catch (re) {
+        console.error('[storage] import 복구 실패 — 규칙을 Export 파일로 복원하세요:', re);
+      }
+      throw e;
+    }
+  }
+
+  async listPresets() {
+    return unwrap(await this.db.from('presets').select('*').order('name')).map(toPreset);
+  }
+  async getPreset(id: string) {
+    const r = unwrap(await this.db.from('presets').select('*').eq('id', id).maybeSingle());
+    return r ? toPreset(r) : null;
+  }
+  async createPreset(input: PresetInput) {
+    return toPreset(unwrap(await this.db.from('presets').insert(fromPreset(input)).select('*').single()));
+  }
+  async updatePreset(id: string, input: PresetInput) {
+    const r = unwrap(await this.db.from('presets').update({ ...fromPreset(input), updated_at: new Date().toISOString() }).eq('id', id).select('*').maybeSingle());
+    return r ? toPreset(r) : null;
+  }
+  async deletePreset(id: string) {
+    return unwrap(await this.db.from('presets').delete().eq('id', id).select('id')).length > 0;
+  }
+  async importPresets(inputs: PresetInput[], mode: ImportMode): Promise<ImportResult> {
+    const { data, error } = await this.db.rpc('import_presets', { p_mode: mode, p_presets: inputs.map(fromPreset) });
+    if (!error) return data as ImportResult;
+    if (error.code !== 'PGRST202') unwrap({ data: null, error });
+    this.warnImportRpcMissing();
+    const snapshot = await this.listPresets();
+    try {
+      if (mode === 'replace') for (const p of snapshot) await this.deletePreset(p.id);
+      const existing = mode === 'replace' ? [] : snapshot;
+      let created = 0;
+      let updated = 0;
+      for (const input of inputs) {
+        const same = existing.find((e) => e.name.trim().toLowerCase() === input.name.trim().toLowerCase());
+        if (same) {
+          await this.updatePreset(same.id, input);
+          updated++;
+        } else {
+          await this.createPreset(input);
+          created++;
+        }
+      }
+      return { created, updated, deleted: mode === 'replace' ? snapshot.length : 0 };
+    } catch (e) {
+      try {
+        for (const p of await this.listPresets()) await this.deletePreset(p.id);
+        for (const p of snapshot) await this.createPreset(p);
+      } catch (re) {
+        console.error('[storage] 프리셋 import 복구 실패 — Export 파일로 복원하세요:', re);
+      }
+      throw e;
+    }
   }
 
   async insertLogs(logs: LogEntry[]) {

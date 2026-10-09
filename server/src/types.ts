@@ -58,6 +58,27 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   unmatchedStatus: 404,
 };
 
+/** 응답의 내용(content-type/headers/body)만 이름 붙여 저장한 전역 프리셋. 적용 시 응답으로 복사된다. */
+export interface Preset {
+  id: string;
+  name: string;
+  contentType: string;
+  headers: Record<string, string>;
+  body: string | null;
+  bodyBase64: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PresetInput = Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>;
+
+export type ImportMode = 'merge' | 'replace';
+export interface ImportResult {
+  created: number;
+  updated: number;
+  deleted: number;
+}
+
 export interface Project {
   id: string;
   slug: string;

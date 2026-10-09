@@ -2,13 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ConflictError } from '../errors.js';
-import type { LogEntry, Project, ProjectSettings, Rule, RuleInput } from '../types.js';
+import type { ImportMode, ImportResult, LogEntry, Preset, PresetInput, Project, ProjectSettings, Rule, RuleInput } from '../types.js';
 import type { LogQuery, Repo } from './repo.js';
 
-/** 메모리 저장소. filePath가 있으면 projects/rules를 JSON 파일에 영속화(로그 제외). */
+const presetKey = (name: string) => name.trim().toLowerCase();
+
+/** 메모리 저장소. filePath가 있으면 projects/rules/presets를 JSON 파일에 영속화(로그 제외). */
 export class MemoryRepo implements Repo {
   private projects: Project[] = [];
   private rules: Rule[] = [];
+  private presets: Preset[] = [];
   private logs: LogEntry[] = [];
   private timer: NodeJS.Timeout | null = null;
 
@@ -17,6 +20,7 @@ export class MemoryRepo implements Repo {
       const d = JSON.parse(readFileSync(filePath, 'utf8'));
       this.projects = d.projects ?? [];
       this.rules = d.rules ?? [];
+      this.presets = d.presets ?? []; // v4 이전 파일에는 없음
     }
   }
 
@@ -25,7 +29,7 @@ export class MemoryRepo implements Repo {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       mkdirSync(dirname(this.filePath!), { recursive: true });
-      writeFileSync(this.filePath!, JSON.stringify({ projects: this.projects, rules: this.rules }, null, 2));
+      writeFileSync(this.filePath!, JSON.stringify({ projects: this.projects, rules: this.rules, presets: this.presets }, null, 2));
     }, 200);
     this.timer.unref();
   }
@@ -117,6 +121,93 @@ export class MemoryRepo implements Repo {
     this.rules = this.rules.filter((r) => r.id !== id);
     this.persist();
     return this.rules.length < n;
+  }
+
+  async importRules(projectId: string, inputs: RuleInput[], mode: ImportMode): Promise<ImportResult> {
+    // 사본에서 모두 적용한 뒤 마지막에 한 번에 교체한다 → 중간에 실패해도 기존 데이터는 그대로
+    const seen = new Set<string>();
+    for (const i of inputs) {
+      const k = `${i.method} ${i.pathPattern}`;
+      if (seen.has(k)) throw new ConflictError(`duplicate rule in import: ${k}`);
+      seen.add(k);
+    }
+    const others = this.rules.filter((r) => r.projectId !== projectId);
+    const mine = this.rules.filter((r) => r.projectId === projectId);
+    const next: Rule[] = mode === 'replace' ? [] : [...mine];
+    const now = new Date().toISOString();
+    let created = 0;
+    let updated = 0;
+    for (const input of inputs) {
+      const responses = input.responses.map((r) => ({ ...r, id: randomUUID() }));
+      const i = next.findIndex((r) => r.method === input.method && r.pathPattern === input.pathPattern);
+      if (i >= 0) {
+        next[i] = { ...input, id: next[i].id, projectId, createdAt: next[i].createdAt, updatedAt: now, responses };
+        updated++;
+      } else {
+        next.push({ ...input, id: randomUUID(), projectId, createdAt: now, updatedAt: now, responses });
+        created++;
+      }
+    }
+    this.rules = [...others, ...next];
+    this.persist();
+    return { created, updated, deleted: mode === 'replace' ? mine.length : 0 };
+  }
+
+  async listPresets() {
+    return [...this.presets].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async getPreset(id: string) {
+    return this.presets.find((p) => p.id === id) ?? null;
+  }
+  private assertPresetName(name: string, selfId?: string) {
+    if (this.presets.some((p) => p.id !== selfId && presetKey(p.name) === presetKey(name))) throw new ConflictError('preset with same name already exists');
+  }
+  async createPreset(input: PresetInput) {
+    this.assertPresetName(input.name);
+    const now = new Date().toISOString();
+    const p: Preset = { ...input, id: randomUUID(), createdAt: now, updatedAt: now };
+    this.presets.push(p);
+    this.persist();
+    return p;
+  }
+  async updatePreset(id: string, input: PresetInput) {
+    const i = this.presets.findIndex((p) => p.id === id);
+    if (i < 0) return null;
+    this.assertPresetName(input.name, id);
+    this.presets[i] = { ...input, id, createdAt: this.presets[i].createdAt, updatedAt: new Date().toISOString() };
+    this.persist();
+    return this.presets[i];
+  }
+  async deletePreset(id: string) {
+    const n = this.presets.length;
+    this.presets = this.presets.filter((p) => p.id !== id);
+    this.persist();
+    return this.presets.length < n;
+  }
+  async importPresets(inputs: PresetInput[], mode: ImportMode): Promise<ImportResult> {
+    const seen = new Set<string>();
+    for (const i of inputs) {
+      if (seen.has(presetKey(i.name))) throw new ConflictError(`duplicate preset in import: ${i.name}`);
+      seen.add(presetKey(i.name));
+    }
+    const next: Preset[] = mode === 'replace' ? [] : [...this.presets];
+    const now = new Date().toISOString();
+    let created = 0;
+    let updated = 0;
+    for (const input of inputs) {
+      const i = next.findIndex((p) => presetKey(p.name) === presetKey(input.name));
+      if (i >= 0) {
+        next[i] = { ...input, id: next[i].id, createdAt: next[i].createdAt, updatedAt: now };
+        updated++;
+      } else {
+        next.push({ ...input, id: randomUUID(), createdAt: now, updatedAt: now });
+        created++;
+      }
+    }
+    const deleted = mode === 'replace' ? this.presets.length : 0;
+    this.presets = next;
+    this.persist();
+    return { created, updated, deleted };
   }
 
   async insertLogs(logs: LogEntry[]) {

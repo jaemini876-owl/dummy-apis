@@ -1,8 +1,22 @@
 # Plan: Dummy API & 설정 웹사이트 (모바일 네이티브 앱 테스트용)
 
 - 작성일: 2026-10-04 (v3: Supabase DB, 팀 공유 서버, 향후 유저 기반 확장 대비)
+- 변경일: 2026-10-09 (v4: 개인/팀용 운영 유지, 비용 0 운영 가이드, JSON Import/Export 보완)
 - 단계: PDCA – Plan
-- 상태: Draft (사용자 검토 대기)
+- 상태: v4 변경안 (사용자 검토 대기). v3 구현은 완료되어 있으며, v4는 그 위의 **작은 보완**임
+
+## 0. v4 변경 요약 (2026-10-09)
+
+검토 과정에서 PUBLIC 배포 + Google 광고 수익화안(계정 없는 임시 세션 모델)을 검토했으나, **서버·도메인 비용 대비 수익이 불확실**하고 광고 승인용 콘텐츠 사이트·쿠키 동의·남용 방어 등 부담이 커서 **채택하지 않았다.** 개인/팀용 도구로 유지한다.
+
+| 구분 | v3 (현재 구현) | v4 (변경) |
+|---|---|---|
+| 용도 | 팀 공유 서버 | **개인/팀용 유지** (PUBLIC·광고·수익화는 범위 제외) |
+| 저장·구분 단위 | 프로젝트 slug (`/m/<slug>`), Supabase 또는 로컬 JSON | **변경 없음** |
+| 운영 비용 | 호스트 미정 | **비용 0 운영 가이드** 추가 (PC/사무실 PC + 터널, 또는 무료 VM) |
+| Import/Export | 규칙 전체를 JSON(version 1)으로 Export/Import **이미 구현** (headers·body 포함, 병합/교체) | **재사용성 보완** (선택 Export, Import 미리보기·오류 위치, 원자성 — D장) |
+
+핵심 원칙: **headers·body를 포함한 규칙은 JSON 파일로 PC에 보관하고, 필요할 때 다시 불러온다.** 일회성 사용은 새 프로젝트를 만들어 Import한 뒤 삭제하는 흐름으로 대체한다.
 
 ## 1. 배경 / 목적
 
@@ -45,8 +59,33 @@
 - 현재는 **로그인 없음**(링크 아는 사람은 누구나 사용). 단, 데이터 모델은 유저 기반 확장을 전제로 설계 (아래 4장)
 - Docker 이미지 + 호스팅 가이드
 
+**D. JSON Import/Export 보완 (v4)**
+
+현황(구현됨): 프로젝트 단위로 규칙 전체(method, path, enabled, conditions, selectMode, 응답별 status/contentType/headers/body/bodyBase64/delay/weight/conditions/fault)를 `{ version: 1, rules: [...] }` JSON으로 Export, Import는 병합(같은 method+path 덮어쓰기) 또는 교체. 즉 **headers·body의 파일 보관·재사용은 이미 가능**하다. 아래는 사용성·안전성 보완이다.
+
+1. ~~선택한 규칙만 Export~~: **생략** (자주 쓰는 응답 재사용은 아래 7번 프리셋이 담당)
+2. **Import 미리보기·검증**: 반영 전에 신규/덮어쓰기/오류 건수를 보여주고, 오류는 규칙 번호·필드 단위로 표시. 병합/교체는 `confirm` 대신 명시적 선택 UI
+3. **Import 원자성**: 현재 교체 모드는 기존 규칙을 먼저 삭제한 뒤 생성하므로 중간 실패 시 일부만 반영될 수 있음 → 전체 검증 통과 후 반영하고, 실패 시 기존 데이터가 보존되도록 개선 (방식은 Design에서 확정)
+4. **포맷 호환**: version 1 유지(필드 추가는 하위 호환). `exportedAt`, 프로젝트명 등 메타는 선택 필드로 추가. 알 수 없는 필드의 처리 정책을 문서화
+5. **보안 안내**: headers에 `Authorization` 토큰 등 민감 값이 있을 수 있으므로 Export 시 안내 문구 표시 (로그는 Export 대상 아님)
+6. **일회성 사용**: 별도 세션 모델 없이, 새 프로젝트 생성 → Import → 사용 → 프로젝트 삭제 흐름으로 충족
+7. **응답 프리셋 (headers·body 단독 저장, 확정)**: 자주 쓰는 응답 내용을 이름 붙여 저장하고 재사용
+   - 프리셋 = `name` + `contentType` + `headers` + `body`(+ 필요 시 `bodyBase64`). 상태 코드·지연·장애·가중치·조건은 포함하지 않음(내용과 동작 분리)
+   - 규칙 편집기에서 응답 작성 시 프리셋을 선택해 headers·body를 채우고, 현재 편집 중인 응답을 프리셋으로 저장 가능
+   - 프리셋 목록 관리(추가/수정/삭제/이름 검색) 및 **별도 JSON 파일로 Import/Export** (`{ version: 1, presets: [...] }`, 규칙 파일과 분리)
+   - 저장 범위는 **전역(모든 프로젝트 공유, 확정)**. 저장소(Supabase 테이블 추가 + 로컬 JSON 모드 대응), 이름 중복 정책은 Design에서 확정
+
+**E. 비용 0 운영 가이드 (v4, 문서 작업)**
+- **기본(확정)**: 같은 사무실 망/Wi-Fi 환경이므로 서버 PC의 내부 IP(`http://<PC IP>:3000`)로 접속. 비용·추가 도구 없음. 콘솔 연결 가이드의 주소 안내를 README에도 정리하고, Windows 방화벽에서 포트 허용 방법을 포함
+- **부록(다른 장소에서 쓸 때만)**: 로컬/사무실 PC에서 실행 + 터널로 외부 접속: Tailscale Funnel(고정 `*.ts.net` HTTPS 주소, 도메인 불필요), Cloudflare Tunnel(빠른 모드는 무작위 주소, 이름 지정 모드는 본인 도메인 필요)
+- 24시간 구동이 필요하면 무료 클라우드 VM(예: Oracle Cloud Always Free) 사용 가능. 슬립하는 무료 PaaS는 SSE·지연 시뮬레이션과 맞지 않음
+- 인터넷에 노출되는 경우 `ADMIN_PASSWORD` 설정 필수, `/m/*`는 항상 공개이므로 민감한 응답은 넣지 말 것
+- Cloudflare 프록시는 긴 응답 대기(130초+ timeout 시뮬레이션)를 끊을 수 있음 → 해당 기능은 Tailscale 또는 프록시 미경유 구성에서 사용
+- 서비스별 무료 조건은 수시로 바뀌므로 가이드에 "가입 전 현재 약관 확인" 명시
+
 ### Out of Scope (추후)
 - 로그인/유저별 권한 (⇒ 설계는 대비, 구현은 다음 단계), 외부 공개 배포용 보안 강화
+- **PUBLIC 배포, Google 광고 수익화, 계정 없는 임시 세션 모델** (v4 검토 후 제외. 다시 검토하려면 서버·도메인 비용, 광고 승인용 콘텐츠 사이트, 쿠키 동의, 남용 방어를 별도 Plan으로 다룰 것)
 - GraphQL/WebSocket, OpenAPI 자동 생성, 클라우드 영구 저장
 
 ## 3. 기술 스택 제안
@@ -55,7 +94,7 @@
 |---|---|---|
 | 런타임 | Node.js 24 + TypeScript | 설치됨 |
 | 서버 | Fastify (catch-all 라우트 + 자체 매처) | 런타임 규칙 변경 시 라우트 재등록 불필요 |
-| 저장소 | **Supabase (Postgres)** — 서버에서 service role key로 접근 (`@supabase/supabase-js`) | 팀 공유·영속, 마이그레이션/RLS/Auth/Realtime를 나중에 그대로 활용 |
+| 저장소 | **Supabase (Postgres)** — 서버에서 service role key로 접근 (`@supabase/supabase-js`). 미설정 시 로컬 JSON(`data/db.json`) 사용 (v4: 변경 없음, 비용 0 운영은 로컬 JSON 모드 가능) | 팀 공유·영속, 마이그레이션/RLS/Auth/Realtime를 나중에 그대로 활용 |
 | 관리 웹 | Vite + React, 서버가 정적 서빙 | 단일 포트·프로세스 |
 | 실시간 로그 | SSE | 단순 |
 | 실행/배포 | `npm start` + Dockerfile, 상시 구동 호스트(Render/Fly/Railway/사내 서버 등) | 팀 공유. 서버리스는 SSE·지연 시뮬레이션에 부적합하여 제외 |
@@ -75,7 +114,16 @@
 - **실시간 로그**: DB insert 후 SSE push (Realtime 구독으로 대체 가능)
 - **기본값**: 새 규칙의 status 200, `Content-Type: application/json`, body `{}`
 
+### v4 설계 영향 (Design 단계에서 구체화)
+- **변경 범위**: 관리 API의 `/projects/:pid/export`·`/import`(`server/src/admin/routes.ts`), `importSchema`(`schemas.ts`), 웹의 `RulesTab.tsx`(Export/Import UI)에 국한. 프로젝트 모델, 저장소, 인증, 캐시는 **변경 없음**
+- **선택 Export**: 규칙 id 목록을 받는 export 변형(쿼리 또는 POST)과 목록 체크박스 UI
+- **Import 2단계화**: 검증·미리보기(dry-run)와 반영을 분리. 검증은 기존 `importSchema` + `ruleInputSchema`를 재사용하되 오류에 규칙 인덱스·필드 경로를 포함
+- **원자성**: Supabase 모드에서는 규칙 교체용 RPC(`replace_rule`)가 이미 있으므로 이를 확장하거나 사전 검증 + 실패 시 보상(재생성)으로 처리할지 Design에서 결정. 로컬 JSON 모드(`repo/memory.ts`)도 동일 동작 보장
+- **포맷**: version 1 유지, 선택 메타 필드 추가. `z.object` 기본 동작(알 수 없는 필드 무시)을 명시적 정책으로 문서화
+
 ## 5. 작업 분해 (Do 단계 예정)
+
+> v3 작업 1~9는 구현 완료. v4 추가 작업은 5-1 참조.
 
 1. 스캐폴딩 (TS, 스크립트, lint)
 2. Supabase 프로젝트/스키마 마이그레이션 + 규칙 저장소 + 메모리 캐시 + path 매처(정적/파라미터/와일드카드) + 단위 테스트
@@ -87,7 +135,26 @@
 8. 전역 설정, 연결 가이드(QR)
 9. Dockerfile, 배포 가이드, README, 통합 테스트
 
+### 5-1. v4 추가 작업
+1. 응답 프리셋(전역): 저장소·API(CRUD), 규칙 편집기에서 프리셋 선택/현재 응답을 프리셋으로 저장, 프리셋 관리 UI, 프리셋 JSON Import/Export (Supabase 마이그레이션 추가 + 로컬 JSON 모드 대응)
+2. Import 검증·미리보기(dry-run): 신규/덮어쓰기/오류 건수, 규칙·필드 단위 오류 표시, 병합/교체 선택 UI 개선
+3. Import 원자성 개선 (교체 모드 중간 실패 시 기존 데이터 보존), Supabase·로컬 JSON 양쪽 모드
+4. Export 메타 필드(`exportedAt` 등) 추가 및 민감 헤더 안내 문구
+5. 테스트: Export → Import 왕복(round-trip), v1 파일 호환, 잘못된 파일 거부 시 데이터 불변, 선택 Export, E2E 갱신
+6. 문서: README에 비용 0 운영 가이드(Tailscale Funnel / Cloudflare Tunnel / 무료 VM)와 Import/Export 사용법 추가
+
 ## 6. 성공 기준 (Check 단계)
+
+### v4 성공 기준
+- [ ] 규칙을 Export한 JSON을 다른(새) 프로젝트에 Import하면 method/path/status/headers/body/지연/장애/다중 응답/조건이 동일하게 복원 (round-trip 테스트)
+- [ ] 프리셋을 만들어 두면 어떤 프로젝트의 규칙 편집기에서든 선택해 headers·body를 채울 수 있음 (전역)
+- [ ] 편집 중인 응답을 프리셋으로 저장하고, 프리셋 JSON을 Export한 뒤 다른 서버/환경에 Import하면 동일하게 복원됨
+- [ ] 기존 version 1 파일을 그대로 Import 가능
+- [ ] 잘못된 파일은 어느 규칙의 어느 필드가 문제인지 알려주며 거부되고, **기존 규칙은 변경되지 않음** (병합·교체 모두)
+- [ ] 교체 Import 중 오류가 나도 기존 규칙이 사라지지 않음 (Supabase·로컬 JSON 모드 모두)
+- [ ] README 가이드대로 같은 Wi-Fi의 실기기에서 `http://<PC IP>:3000/m/<slug>/...` 호출 성공 (방화벽 포트 허용 포함)
+
+### v3 성공 기준
 
 - [ ] 웹에서 `GET /v2/orders/:id`, 상태 200, JSON body 등록 → 앱/curl이 해당 URL 호출 시 그대로 수신 (**재시작 없이**)
 - [ ] 같은 path에 method별 다른 응답, 404/401/500 등 임의 상태 코드 응답 가능
@@ -113,6 +180,10 @@
 | 로그 무한 증가 | Supabase 용량(무료 플랜 500MB) | 보관 기간/건수 제한 + 정리 job, 바디 크기 상한 |
 | Supabase 지연/장애 | 모의 API가 DB에 의존 | 메모리 캐시로 읽기 경로는 DB 독립 |
 | 범위 확장 | 기능 욕심 | MVP 먼저, 조건 매칭·import는 후순위 가능 |
+| (v4) Export 파일의 민감 값 | headers에 토큰 등이 포함된 JSON을 공유/커밋할 수 있음 | Export 시 안내 문구, README에 저장소 커밋 주의 명시 |
+| (v4) Import 부분 반영 | 교체 모드 중간 실패 시 규칙 일부 소실 | 사전 검증 + 원자적 반영 (D장 3번) |
+| (v4) 터널로 인터넷 노출 | 콘솔·`/m/*`가 외부에 노출됨 | `ADMIN_PASSWORD` 필수, 민감 응답 금지, 사용하지 않을 때 터널 종료 |
+| (v4) 무료 서비스 조건 변경 | 터널/무료 VM의 정책·한도가 바뀔 수 있음 | 가이드에 "현재 약관 확인" 명시, 대안(다른 터널) 병기 |
 
 ## 8. 결정 사항 (확정)
 
@@ -122,11 +193,20 @@
 4. 인증: 지금은 없음, 향후 유저 기반 확장 대비 설계 ✅
 5. DB: Supabase (Postgres) ✅
 
-### 남은 확인 사항 (design 단계 전에 답 주시면 좋음)
-- Supabase 프로젝트가 이미 있나요? (없으면 새로 생성 안내 + 마이그레이션 SQL 제공)
-- 배포할 호스트가 정해져 있나요? (사내 서버 / Render / Fly 등)
-- 프로젝트 URL 방식: path prefix(`/m/<slug>/...`, 기본) vs 서브도메인(`<slug>.host`)
+### v4 확정 사항 (2026-10-09)
+6. 용도: 개인/팀용 유지. PUBLIC 배포·Google 광고·계정 없는 임시 세션 모델은 제외 ✅
+7. Import/Export 범위: 규칙 전체(headers·body 포함) JSON — 이미 구현됨, v4는 보완만 ✅
+8. 비용 0 운영: 같은 사무실 망/Wi-Fi에서 내부 IP로 접속 (터널은 부록) ✅
+9. 응답 headers·body 프리셋: 전역, 별도 JSON Import/Export ✅ / 선택 Export는 생략 ✅
+
+### 남은 확인 사항 (Design 단계 전에 답 주시면 좋음)
+- ~~응답 headers·body 프리셋~~ → **필요함 (확정, D-7)**
+- ~~선택 Export~~ → **생략 (프리셋이 대체, D-1 제외)**
+- ~~사용 환경~~ → **같은 사무실 망/Wi-Fi (확정)**: 내부 IP 접속이 기본이므로 터널 가이드(E장)는 "다른 장소에서 쓸 때"용 부록으로 간략히
+- ~~프리셋 범위~~ → **전역 (확정)**
+
+(Design 전 추가 확인 사항 없음)
 
 ## 9. 다음 단계
 
-승인 후 `pdca design dummy-api` → 데이터 모델/API 명세/화면 설계 → Do 단계 구현.
+v4 승인 후 `pdca design dummy-api` → Import 검증·원자성 방식, 선택 Export API, 포맷 정책 설계 → Do 단계 구현. 변경 범위가 작아 Design 문서는 기존 문서에 v4 절을 추가하는 정도로 충분하다.
